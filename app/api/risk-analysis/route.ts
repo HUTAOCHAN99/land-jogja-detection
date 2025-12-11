@@ -148,9 +148,8 @@ const DIY_BOUNDS = getDIYBounds();
 const dataCache = new Map<string, { data: EnvironmentalData; timestamp: number }>();
 const CACHE_TTL = parseInt(process.env.NEXT_PUBLIC_CACHE_TTL || '1800000'); // 30 menit default
 
-// Database statis untuk data DIY yang tidak tersedia via API
+// Database statis untuk data DIY 
 const DIY_SOIL_DATABASE: Record<string, Record<string, number>> = {
-  // Berdasarkan peta tanah DIY (data real dari penelitian)
   "Sleman": {
     "Andosol (Vulkanik)": 0.65,
     "Latosol": 0.25,
@@ -177,13 +176,13 @@ const DIY_SOIL_DATABASE: Record<string, Record<string, number>> = {
   }
 };
 
+// Data terbaru populasi per kecamatan di DIY (orang per km²) berdasarkan BPS 2025
 const DIY_POPULATION_DENSITY: Record<string, number> = {
-  // Data real dari BPS DIY 2023
-  "Kota Yogyakarta": 12500,
-  "Sleman": 2100,
-  "Bantul": 1800,
-  "Gunungkidul": 600,
-  "Kulon Progo": 900
+  "Kota Yogyakarta": 11562,
+  "Sleman": 2052,
+  "Bantul": 2024,
+  "Gunungkidul": 506,
+  "Kulon Progo": 763
 };
 
 // ==================== REAL DATA FETCHERS ====================

@@ -1,12 +1,14 @@
-// components/map/SidebarControl.tsx
+// components/map/SidebarControl.tsx - COMPLETE FIXED VERSION WITH AUTO ZOOM INFO
 'use client'
 import { useState } from 'react'
-import { MapControlProps, TileLayerConfig } from "@/types";
+import { MapControlProps, TileLayerConfig, TileLayerKey } from "@/types";
 
 interface ExtendedMapControlProps extends MapControlProps {
   tileLayers?: Record<string, TileLayerConfig>;
-  activeTileLayer?: string;
-  onTileLayerChange?: (layer: string) => void;
+  baseTileLayer?: string;
+  onBaseLayerChange?: (layer: string) => void;
+  overlayLayers?: { [key: string]: boolean };
+  onToggleOverlay?: (layer: string) => void;
   showHistory?: boolean;
   onHistoryChange?: (show: boolean) => void;
   historyCount?: number;
@@ -17,12 +19,16 @@ export function SidebarControl({
   showRiskZones, 
   onRiskZonesChange, 
   tileLayers,
-  activeTileLayer,
-  onTileLayerChange,
+  baseTileLayer,
+  onBaseLayerChange,
+  overlayLayers = {},
+  onToggleOverlay,
   showHistory = false,
   onHistoryChange,
   historyCount = 0,
-  onClearHistory
+  onClearHistory,
+  showHeatmap = false,
+  onHeatmapChange
 }: ExtendedMapControlProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -68,33 +74,72 @@ export function SidebarControl({
             </div>
           </div>
 
-          {/* Tile Layer Selector */}
-          {tileLayers && onTileLayerChange && (
+          {/* Base Layer Selector */}
+          {tileLayers && onBaseLayerChange && baseTileLayer && (
             <div className="mb-4">
               <label className="block text-xs font-semibold text-gray-900 mb-2">Peta Dasar</label>
               <select 
-                value={activeTileLayer}
-                onChange={(e) => onTileLayerChange(e.target.value)}
+                value={baseTileLayer}
+                onChange={(e) => onBaseLayerChange(e.target.value)}
                 className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-green-500 focus:border-green-500 bg-white text-gray-900"
               >
-                {Object.entries(tileLayers).map(([key, layer]) => (
-                  <option key={key} value={key}>{layer.name}</option>
-                ))}
+                {Object.entries(tileLayers)
+                  .filter(([key, layer]) => layer.isBaseLayer)
+                  .map(([key, layer]) => (
+                    <option key={key} value={key}>{layer.name}</option>
+                  ))
+                }
               </select>
-              
-              {/* Info khusus untuk layer custom */}
-              {activeTileLayer === 'custom_qgis' && tileLayers[activeTileLayer] && (
-                <div className="mt-2 p-2 bg-purple-50 rounded border border-purple-200">
-                  <div className="flex items-center space-x-1 mb-1">
-                    <span className="text-purple-600">🗺️</span>
-                    <span className="text-xs font-medium text-purple-800">Peta Khusus DIY</span>
+              {/* Current layer info */}
+              {baseTileLayer && tileLayers[baseTileLayer as TileLayerKey] && (
+                <div className="mt-2 p-2 rounded border bg-blue-50 border-blue-200">
+                  <div className="text-xs text-blue-700">
+                    Zoom: {tileLayers[baseTileLayer as TileLayerKey]?.zoomLock?.min || 9} - {tileLayers[baseTileLayer as TileLayerKey]?.zoomLock?.max || 16}
                   </div>
-                  <div className="text-[10px] text-purple-700">
-                    • Tersedia zoom 10-14
-                    <br/>
-                    • Data lokal dari QGIS
-                    <br/>
-                    • Optimasi untuk DIY
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Overlay Layer Controls */}
+          {onToggleOverlay && (
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-900 mb-2">Layer Overlay</label>
+              <div className="space-y-2">
+                {Object.entries(tileLayers || {})
+                  .filter(([key, layer]) => !layer.isBaseLayer)
+                  .map(([key, layer]) => (
+                    <label key={key} className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={overlayLayers[key] || false}
+                          onChange={() => onToggleOverlay(key)}
+                          className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                        />
+                        <div>
+                          <span className="text-xs text-gray-700">{layer.name}</span>
+                          {key === 'custom_qgis' && layer.defaultZoom && (
+                            <div className="text-[10px] text-purple-600">
+                              Auto zoom: {layer.defaultZoom}x
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {layer.opacity && (
+                        <span className="text-[10px] text-gray-500">
+                          Opacity: {layer.opacity * 100}%
+                        </span>
+                      )}
+                    </label>
+                  ))
+                }
+              </div>
+              {overlayLayers.custom_qgis && (
+                <div className="mt-2 p-2 bg-purple-50 rounded border border-purple-200">
+                  <div className="text-xs text-purple-700">
+                    🔒 Zoom terkunci 10-14<br/>
+                    🎯 Auto zoom ke 10x
                   </div>
                 </div>
               )}
@@ -139,6 +184,22 @@ export function SidebarControl({
                   <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
               </div>
+
+              {/* Heatmap Toggle */}
+              {onHeatmapChange && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-900">Heatmap Risiko</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showHeatmap}
+                      onChange={(e) => onHeatmapChange(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-red-600"></div>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
@@ -186,11 +247,28 @@ export function SidebarControl({
             <ul className="text-[11px] text-blue-700 space-y-0.5">
               <li>• Klik area untuk analisis risiko</li>
               <li>• Aktifkan Titik Analisis untuk melihat riwayat</li>
+              <li>• Pilih Peta Dasar di dropdown atas</li>
+              <li>• Aktifkan Peta Khusus DIY sebagai overlay</li>
+              <li>• Peta Khusus: Auto zoom ke 10x, Zoom 10-14</li>
               <li>• Merah: Risiko Tinggi</li>
               <li>• Kuning: Risiko Sedang</li>
               <li>• Hijau: Risiko Rendah</li>
             </ul>
           </div>
+
+          {/* Overlay Status */}
+          {overlayLayers.custom_qgis && (
+            <div className="bg-purple-50/80 p-3 rounded border border-purple-200/50 mt-3">
+              <h4 className="text-xs font-semibold text-purple-800 mb-1.5">Status Overlay Aktif</h4>
+              <ul className="text-[11px] text-purple-700 space-y-0.5">
+                <li>• ✅ Peta Khusus DIY aktif</li>
+                <li>• 🔒 Zoom terkunci 10-14</li>
+                <li>• 🎯 Zoom saat ini: 10x</li>
+                <li>• 📍 Batas DIY tersembunyi</li>
+                <li>• 💡 Peta khusus QGIS detail</li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 

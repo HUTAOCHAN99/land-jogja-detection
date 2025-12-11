@@ -1,4 +1,3 @@
-
 // types/index.ts
 export interface AddressDetails {
   full: string;
@@ -30,7 +29,7 @@ export interface RiskData {
   soilType: string;
   geologicalRisk: string;
   address: string;
-  addressDetails?: AddressDetails; // Tambahkan field baru
+  addressDetails?: AddressDetails;
   accuracy: number;
   timestamp: string;
   metadata: {
@@ -46,6 +45,7 @@ export interface RiskData {
     dataSources?: string[];
   };
 }
+
 export interface AnalyzedPoint {
   id: string;
   position: [number, number];
@@ -63,10 +63,24 @@ export interface ViewportBounds {
   northEast: [number, number];
 }
 
-export const DIY_BOUNDS: ViewportBounds = {
-  southWest: [-8.2, 110.1],
-  northEast: [-7.5, 110.7]
-};
+export interface ZoomLock {
+  min: number;
+  max: number;
+}
+
+export interface TileLayerConfig {
+  name: string;
+  url: string;
+  attribution: string;
+  minZoom?: number;
+  maxZoom?: number;
+  tms?: boolean;
+  hideBoundary?: boolean;
+  zoomLock?: ZoomLock;
+  defaultZoom?: number;
+  opacity?: number;
+  isBaseLayer?: boolean;
+}
 
 export interface MapControlProps {
   showRiskZones: boolean;
@@ -74,18 +88,14 @@ export interface MapControlProps {
   showHeatmap: boolean;
   onHeatmapChange: (show: boolean) => void;
   tileLayers?: Record<string, TileLayerConfig>;
-  activeTileLayer?: string;
-  onTileLayerChange?: (layer: string) => void;
+  baseTileLayer?: string;
+  onBaseLayerChange?: (layer: string) => void;
+  overlayLayers?: { [key: string]: boolean };
+  onToggleOverlay?: (layer: string) => void;
   showHistory?: boolean;
   onHistoryChange?: (show: boolean) => void;
   historyCount?: number;
   onClearHistory?: () => void;
-}
-
-export interface TileLayerConfig {
-  name: string;
-  url: string;
-  attribution: string;
 }
 
 export interface Subdistrict {
@@ -119,40 +129,51 @@ export interface GeoJSONData {
   features: GeoJSONFeature[];
 }
 
-// types/index.ts
-export interface TileLayerConfig {
-  name: string;
-  url: string;
-  attribution: string;
-  minZoom?: number;
-  maxZoom?: number;
-  tms?: boolean;
-}
-
-// Tambahkan ke tileLayers di useMap
-export const tileLayers = {
+// Tile layers configuration
+export const tileLayers: Record<string, TileLayerConfig> = {
+  // Base layers
   standard: {
     name: 'Standar',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenStreetMap contributors'
+    attribution: '© OpenStreetMap contributors',
+    hideBoundary: false,
+    zoomLock: { min: 9, max: 16 },
+    defaultZoom: 10,
+    isBaseLayer: true
   },
   satellite: {
     name: 'Satelit', 
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '© Esri'
+    attribution: '© Esri',
+    hideBoundary: false,
+    zoomLock: { min: 9, max: 16 },
+    defaultZoom: 10,
+    isBaseLayer: true
   },
   terrain: {
     name: 'Topografi',
     url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenTopoMap'
+    attribution: '© OpenTopoMap',
+    hideBoundary: false,
+    zoomLock: { min: 9, max: 16 },
+    defaultZoom: 10,
+    isBaseLayer: true
   },
-  // Tambahkan layer custom dari QGIS
+  
+  // Overlay layers
   custom_qgis: {
     name: 'Peta Khusus DIY',
-    url: '/tiles/{z}/{x}/{y}.png', // Path ke tile folder di public
+    url: '/tiles/{z}/{x}/{y}.png',
     attribution: 'Created by QGIS',
     minZoom: 10,
     maxZoom: 14,
-    tms: false
+    tms: false,
+    hideBoundary: true,
+    zoomLock: { min: 10, max: 14 },
+    defaultZoom: 10,
+    opacity: 0.7,
+    isBaseLayer: false
   }
-} as const;
+};
+
+export type TileLayerKey = keyof typeof tileLayers;

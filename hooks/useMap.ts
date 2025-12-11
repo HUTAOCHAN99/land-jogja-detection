@@ -1,42 +1,12 @@
-// hooks/useMap.ts - COMPLETE MODIFIED VERSION WITH TILE LAYER SUPPORT
+// hooks/useMap.ts - COMPLETE FIXED VERSION WITH AUTO ZOOM ON OVERLAY
 import { useState, useEffect, useCallback } from 'react'
 import L from 'leaflet'
-import { RiskData, ViewportBounds, AnalyzedPoint, MapHistoryState, TileLayerConfig } from '@/types'
+import { RiskData, ViewportBounds, AnalyzedPoint, MapHistoryState, TileLayerKey, tileLayers } from '@/types'
 
 interface ToastState {
   message: string
   type: 'success' | 'error' | 'warning' | 'info'
 }
-
-// Define tile layer options
-const tileLayers: Record<string, TileLayerConfig> = {
-  standard: {
-    name: 'Standar',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenStreetMap contributors'
-  },
-  satellite: {
-    name: 'Satelit', 
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '© Esri'
-  },
-  terrain: {
-    name: 'Topografi',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenTopoMap'
-  },
-  // Tambahkan layer custom dari QGIS
-  custom_qgis: {
-    name: 'Peta Khusus DIY',
-    url: '/tiles/{z}/{x}/{y}.png', // Path ke tile folder di public
-    attribution: 'Created by QGIS',
-    minZoom: 10,
-    maxZoom: 14,
-    tms: false
-  }
-}
-
-type TileLayerKey = keyof typeof tileLayers
 
 export const useMapConfig = () => {
   const [clickedPosition, setClickedPosition] = useState<[number, number] | null>(null)
@@ -49,12 +19,16 @@ export const useMapConfig = () => {
     showHistory: false
   })
   const [toast, setToast] = useState<ToastState | null>(null)
-  const [activeTileLayer, setActiveTileLayer] = useState<TileLayerKey>('standard')
+  const [baseTileLayer, setBaseTileLayer] = useState<TileLayerKey>('satellite')
+  const [overlayLayers, setOverlayLayers] = useState<{
+    [key: string]: boolean;
+  }>({
+    custom_qgis: false
+  })
 
   // Fungsi untuk menampilkan toast
   const showToast = (message: string, type: ToastState['type'] = 'info') => {
     setToast({ message, type })
-    // Auto hide setelah 3 detik
     setTimeout(() => setToast(null), 3000)
   }
 
@@ -82,41 +56,122 @@ export const useMapConfig = () => {
     return bounds.contains(L.latLng(lat, lng))
   }
 
-  // Fungsi untuk mengubah tile layer
-  const handleTileLayerChange = (layer: TileLayerKey) => {
-    setActiveTileLayer(layer)
+  // Fungsi untuk mengubah base layer
+  const handleBaseLayerChange = (layer: string) => {
+    const previousLayer = baseTileLayer
+    const layerKey = layer as TileLayerKey
     
-    // Jika layer custom dipilih, atur zoom bounds
-    if (layer === 'custom_qgis' && map) {
-      map.setMinZoom(10)
-      map.setMaxZoom(14)
+    // Periksa apakah layer yang dipilih adalah base layer
+    if (tileLayers[layerKey] && tileLayers[layerKey].isBaseLayer) {
+      setBaseTileLayer(layerKey)
       
-      // Jika zoom saat ini di luar range, set ke zoom valid terdekat
-      const currentZoom = map.getZoom()
-      if (currentZoom < 10) {
-        map.setZoom(10)
-      } else if (currentZoom > 14) {
-        map.setZoom(14)
+      const newLayer = tileLayers[layerKey]
+      
+      if (map) {
+        // Jika overlay peta khusus aktif, gunakan zoom lock dari overlay
+        if (overlayLayers.custom_qgis) {
+          const customLayer = tileLayers.custom_qgis
+          map.setMinZoom(customLayer.zoomLock?.min || 9)
+          map.setMaxZoom(customLayer.zoomLock?.max || 16)
+          map.setZoom(customLayer.defaultZoom || 10)
+          showToast(`Peta dasar diganti ke: ${newLayer.name} - Zoom tetap 10x (overlay aktif)`, 'info')
+        } else {
+          // Jika tidak ada overlay aktif, gunakan zoom lock dari base layer
+          if (newLayer.zoomLock) {
+            map.setMinZoom(newLayer.zoomLock.min)
+            map.setMaxZoom(newLayer.zoomLock.max)
+            
+            // Adjust current zoom jika di luar range
+            const currentZoom = map.getZoom()
+            if (currentZoom < newLayer.zoomLock.min) {
+              map.setZoom(newLayer.zoomLock.min)
+            } else if (currentZoom > newLayer.zoomLock.max) {
+              map.setZoom(newLayer.zoomLock.max)
+            }
+          }
+          
+          // Jika ada defaultZoom, set ke default
+          if (newLayer.defaultZoom) {
+            map.setZoom(newLayer.defaultZoom)
+          }
+          
+          showToast(`Mengganti peta dasar ke: ${newLayer.name}`, 'info')
+        }
       }
-    } else if (map) {
-      // Reset zoom bounds untuk layer lain
-      map.setMinZoom(9)
-      map.setMaxZoom(16)
+    } else {
+      showToast('Layer yang dipilih bukan peta dasar', 'warning')
     }
-    
-    showToast(`Mengganti peta dasar ke: ${tileLayers[layer].name}`, 'info')
   }
+
+  // Fungsi untuk toggle overlay layer dengan auto zoom
+  const toggleOverlayLayer = (layerKey: string) => {
+    const key = layerKey as TileLayerKey
+    const layer = tileLayers[key]
+    
+    // Hanya untuk layer yang bukan base layer
+    if (layer && !layer.isBaseLayer) {
+      const willBeActive = !overlayLayers[key]
+      setOverlayLayers(prev => ({
+        ...prev,
+        [key]: willBeActive
+      }))
+      
+      if (key === 'custom_qgis' && willBeActive && map) {
+        // Otomatis set zoom ke 10 untuk peta khusus
+        setTimeout(() => {
+          if (map && layer.defaultZoom) {
+            map.setZoom(layer.defaultZoom)
+            
+            // Juga set zoom lock
+            if (layer.zoomLock) {
+              map.setMinZoom(layer.zoomLock.min)
+              map.setMaxZoom(layer.zoomLock.max)
+            }
+          }
+        }, 100)
+        
+        showToast(`Mengaktifkan ${layer.name} - Zoom diatur ke ${layer.defaultZoom}x`, 'info')
+      } else if (key === 'custom_qgis' && !willBeActive && map) {
+        // Reset zoom lock ke base layer saat overlay dimatikan
+        const currentBaseLayer = tileLayers[baseTileLayer]
+        if (currentBaseLayer?.zoomLock) {
+          map.setMinZoom(currentBaseLayer.zoomLock.min)
+          map.setMaxZoom(currentBaseLayer.zoomLock.max)
+        }
+        
+        showToast(`Menonaktifkan ${layer.name} - Zoom lock dikembalikan`, 'info')
+      } else {
+        const message = overlayLayers[key] 
+          ? `Menonaktifkan overlay: ${layer.name}`
+          : `Mengaktifkan overlay: ${layer.name}${layer.opacity ? ` (Opacity: ${layer.opacity * 100}%)` : ''}`
+        
+        showToast(message, 'info')
+      }
+    } else if (layer) {
+      showToast('Layer ini adalah peta dasar, bukan overlay', 'warning')
+    }
+  }
+
+  // Efek untuk reset zoom ketika overlay dimatikan
+  useEffect(() => {
+    if (map && !overlayLayers.custom_qgis && baseTileLayer) {
+      // Reset zoom lock ke base layer saat overlay dimatikan
+      const currentBaseLayer = tileLayers[baseTileLayer]
+      if (currentBaseLayer?.zoomLock) {
+        map.setMinZoom(currentBaseLayer.zoomLock.min)
+        map.setMaxZoom(currentBaseLayer.zoomLock.max)
+      }
+    }
+  }, [overlayLayers.custom_qgis, baseTileLayer, map])
 
   // Data detail untuk fallback alamat berdasarkan koordinat
   const getDetailedFallbackAddress = (lat: number, lng: number): string => {
-    // Database lokasi detail di DIY berdasarkan koordinat
     const locationDatabase: Array<{
       name: string
       type: 'kecamatan' | 'kelurahan' | 'desa' | 'kawasan' | 'jalan'
       bounds: [number, number, number, number]
       details: string
     }> = [
-      // Kota Yogyakarta
       { 
         name: "Malioboro", 
         type: "jalan", 
@@ -130,27 +185,11 @@ export const useMapConfig = () => {
         details: "Jalan Gejayan, Depok, Sleman" 
       },
       { 
-        name: "Sagan", 
-        type: "jalan", 
-        bounds: [-7.782, 110.375, -7.778, 110.380],
-        details: "Jalan Sagan, Terban, Yogyakarta" 
-      },
-      
-      // Kampus dan Institusi
-      { 
         name: "UGM", 
         type: "kawasan", 
         bounds: [-7.770, 110.377, -7.760, 110.387],
         details: "Kawasan Universitas Gadjah Mada, Bulaksumur, Sleman" 
       },
-      { 
-        name: "UNY", 
-        type: "kawasan", 
-        bounds: [-7.775, 110.385, -7.770, 110.390],
-        details: "Kawasan Universitas Negeri Yogyakarta, Karangmalang, Sleman" 
-      },
-      
-      // Sleman - Depok
       { 
         name: "Depok", 
         type: "kecamatan", 
@@ -158,27 +197,11 @@ export const useMapConfig = () => {
         details: "Kecamatan Depok, Kabupaten Sleman" 
       },
       { 
-        name: "Condongcatur", 
-        type: "kelurahan", 
-        bounds: [-7.755, 110.380, -7.750, 110.390],
-        details: "Kelurahan Condongcatur, Depok, Sleman" 
-      },
-      
-      // Sleman - Lereng Merapi
-      { 
         name: "Kaliurang", 
         type: "kawasan", 
         bounds: [-7.600, 110.430, -7.590, 110.440],
         details: "Kawasan Kaliurang, Cangkringan, Sleman" 
       },
-      { 
-        name: "Turgo", 
-        type: "desa", 
-        bounds: [-7.590, 110.440, -7.580, 110.450],
-        details: "Desa Turgo, Cangkringan, Sleman" 
-      },
-      
-      // Bantul
       { 
         name: "Kasihan", 
         type: "kecamatan", 
@@ -186,27 +209,11 @@ export const useMapConfig = () => {
         details: "Kecamatan Kasihan, Bantul" 
       },
       { 
-        name: "Sewon", 
-        type: "kecamatan", 
-        bounds: [-7.870, 110.350, -7.850, 110.370],
-        details: "Kecamatan Sewon, Bantul" 
-      },
-      
-      // Gunungkidul
-      { 
         name: "Wonosari", 
         type: "kecamatan", 
         bounds: [-7.970, 110.550, -7.950, 110.570],
         details: "Kecamatan Wonosari, Gunungkidul" 
       },
-      { 
-        name: "Baron", 
-        type: "kawasan", 
-        bounds: [-8.120, 110.450, -8.110, 110.460],
-        details: "Kawasan Pantai Baron, Gunungkidul" 
-      },
-      
-      // Kulon Progo
       { 
         name: "Wates", 
         type: "kecamatan", 
@@ -280,10 +287,18 @@ export const useMapConfig = () => {
     const centerLat = parseFloat(process.env.NEXT_PUBLIC_MAP_CENTER_LAT || '-7.7972')
     const centerLng = parseFloat(process.env.NEXT_PUBLIC_MAP_CENTER_LNG || '110.3688')
     
-    mapInstance.setView([centerLat, centerLng], 10)
-    mapInstance.setMinZoom(9)
-    mapInstance.setMaxZoom(16)
-  }, [DIY_BOUNDS.northEast, DIY_BOUNDS.southWest])
+    // Set initial zoom berdasarkan base layer
+    const currentLayer = tileLayers[baseTileLayer]
+    const initialZoom = currentLayer?.defaultZoom || 10
+    
+    mapInstance.setView([centerLat, centerLng], initialZoom)
+    
+    // Set zoom bounds berdasarkan base layer
+    if (currentLayer?.zoomLock) {
+      mapInstance.setMinZoom(currentLayer.zoomLock.min)
+      mapInstance.setMaxZoom(currentLayer.zoomLock.max)
+    }
+  }, [DIY_BOUNDS.northEast, DIY_BOUNDS.southWest, baseTileLayer])
 
   // Fungsi retry untuk fetch dengan timeout
   const fetchWithRetry = async (url: string, options: RequestInit, retries = 2, timeout = 8000): Promise<Response> => {
@@ -559,10 +574,11 @@ export const useMapConfig = () => {
     mapHistory,
     toast,
     setToast,
-    activeTileLayer,
+    baseTileLayer,
+    overlayLayers,
     tileLayers,
-    setActiveTileLayer,
-    handleTileLayerChange,
+    handleBaseLayerChange,
+    toggleOverlayLayer,
     setShowRiskZones,
     setMap,
     setRiskData,

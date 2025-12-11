@@ -1,11 +1,11 @@
-// components/map/TileLayerInfo.tsx
+// components/map/components/map/TileLayerInfo.tsx
 'use client'
 
 import { TileLayerConfig } from '@/types'
 import { useState, useEffect } from 'react'
 
 interface TileLayerInfoProps {
-  layer: TileLayerConfig;
+  layer: TileLayerConfig & { zoomLock?: { min: number; max: number }; defaultZoom?: number };
   isActive: boolean;
 }
 
@@ -19,7 +19,6 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
       setIsVisible(true);
       setIsExiting(false);
       
-      // Auto hide setelah 5 detik
       const timer = setTimeout(() => {
         setIsExiting(true);
         setTimeout(() => setIsVisible(false), 300);
@@ -77,14 +76,56 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
               </button>
             </div>
 
-            {/* Zoom Info */}
-            {(layer.minZoom || layer.maxZoom) && (
-              <div className="mb-2">
-                <div className="flex items-center space-x-2 text-xs text-gray-600">
+            {/* Zoom Info dengan lock status */}
+            <div className="mb-2">
+              <div className="flex items-center space-x-2 text-xs text-gray-600 mb-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span>Zoom: {layer.zoomLock?.min || 0} - {layer.zoomLock?.max || 18}</span>
+                {layer.defaultZoom && (
+                  <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 text-xs rounded-full">
+                    Auto Zoom: {layer.defaultZoom}x
+                  </span>
+                )}
+              </div>
+              
+              {/* Auto Zoom Notification */}
+              {layer.defaultZoom && (
+                <div className="bg-purple-50 p-1.5 rounded border border-purple-100 mb-2">
+                  <div className="flex items-center space-x-1 text-xs text-purple-700">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span>Zoom otomatis ke {layer.defaultZoom}x saat aktif</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* Zoom Lock Indicator */}
+              {layer.zoomLock && layer.zoomLock.min === 10 && layer.zoomLock.max === 14 && (
+                <div className="flex items-center space-x-1 text-[10px] text-purple-600 bg-purple-50 p-1.5 rounded border border-purple-100">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
-                  <span>Zoom: {layer.minZoom || 0} - {layer.maxZoom || 18}</span>
+                  <span>Zoom terkunci 10-14 untuk optimasi peta</span>
+                </div>
+              )}
+            </div>
+
+            {/* Boundary Status */}
+            {layer.hideBoundary && (
+              <div className="mb-2 bg-yellow-50 p-2 rounded border border-yellow-200">
+                <div className="flex items-center space-x-1 mb-1">
+                  <svg className="w-3 h-3 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-xs font-medium text-yellow-700">
+                    Batas DIY dinonaktifkan
+                  </span>
+                </div>
+                <div className="text-[11px] text-yellow-600">
+                  Peta khusus sudah mencakup informasi batas wilayah
                 </div>
               </div>
             )}
@@ -98,6 +139,11 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
                   <li>• Dioptimalkan untuk analisis risiko</li>
                   <li>• Detail area spesifik DIY</li>
                   <li>• Update berkala berdasarkan data terbaru</li>
+                  <li>• Zoom terkunci 10-14 untuk detail maksimal</li>
+                  <li>• Zoom otomatis ke 10x saat aktif</li>
+                  {layer.hideBoundary && (
+                    <li>• Batas wilayah sudah termasuk dalam peta</li>
+                  )}
                 </ul>
               </div>
             )}
@@ -109,6 +155,7 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
                   <li>• Citra satelit resolusi tinggi</li>
                   <li>• Terlihat kondisi aktual lahan</li>
                   <li>• Cocok untuk analisis tutupan lahan</li>
+                  <li>• Zoom fleksibel 9-16</li>
                 </ul>
               </div>
             )}
@@ -120,6 +167,7 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
                   <li>• Garis kontur ketinggian</li>
                   <li>• Visualisasi medan 3D</li>
                   <li>• Analisis kemiringan lereng</li>
+                  <li>• Zoom fleksibel 9-16</li>
                 </ul>
               </div>
             )}
@@ -131,6 +179,7 @@ export function TileLayerInfo({ layer, isActive }: TileLayerInfoProps) {
                   <li>• Data OpenStreetMap terbaru</li>
                   <li>• Jalan dan batas administratif</li>
                   <li>• Cocok untuk navigasi umum</li>
+                  <li>• Zoom fleksibel 9-16</li>
                 </ul>
               </div>
             )}
