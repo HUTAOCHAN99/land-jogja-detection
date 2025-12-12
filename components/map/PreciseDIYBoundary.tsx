@@ -9,12 +9,10 @@ interface PreciseDIYBoundaryProps {
   source: string // TETAPKAN meski tidak digunakan, untuk interface consistency
 }
 
-// HAPUS interface GeoJSONFeatureCollection yang tidak digunakan
-
 // Sumber data Natural Earth untuk provinsi di Indonesia
 const ALL_PROVINCES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
 
-export function PreciseDIYBoundary({ diyFeature, source }: PreciseDIYBoundaryProps) {
+export function PreciseDIYBoundary({ diyFeature }: PreciseDIYBoundaryProps) {
   const map = useMap()
 
   // Style untuk boundary DIY - lebih transparan

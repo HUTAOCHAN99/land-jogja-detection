@@ -1,36 +1,61 @@
-// components/map/SidebarControl.tsx - COMPLETE FIXED VERSION WITH AUTO ZOOM INFO
+// components/map/SidebarControl.tsx - SIMPLIFIED VERSION
 'use client'
 import { useState } from 'react'
-import { MapControlProps, TileLayerConfig, TileLayerKey } from "@/types";
+import { TileLayerConfig, TileLayerKey } from "@/types";
 
-interface ExtendedMapControlProps extends MapControlProps {
-  tileLayers?: Record<string, TileLayerConfig>;
-  baseTileLayer?: string;
-  onBaseLayerChange?: (layer: string) => void;
-  overlayLayers?: { [key: string]: boolean };
-  onToggleOverlay?: (layer: string) => void;
-  showHistory?: boolean;
-  onHistoryChange?: (show: boolean) => void;
-  historyCount?: number;
-  onClearHistory?: () => void;
+interface SidebarControlProps {
+  tileLayers: Record<string, TileLayerConfig>;
+  baseTileLayer: string;
+  onBaseLayerChange: (layer: string) => void;
+  overlayLayers: { [key: string]: boolean };
+  onToggleOverlay: (layer: string) => void;
 }
 
+// Group layers by category
+const groupLayersByCategory = (layers: Record<string, TileLayerConfig>) => {
+  const categories: Record<string, Array<{key: string; layer: TileLayerConfig}>> = {};
+  
+  Object.entries(layers).forEach(([key, layer]) => {
+    if (!layer.isBaseLayer) {
+      const category = layer.category || 'diy';
+      if (!categories[category]) {
+        categories[category] = [];
+      }
+      categories[category].push({ key, layer });
+    }
+  });
+  
+  return categories;
+};
+
+// Category labels
+const categoryLabels: Record<string, string> = {
+  'risk': 'Peta Risiko',
+  'environment': 'Peta Lingkungan',
+  'infrastructure': 'Peta Infrastruktur',
+  'diy': 'Peta DIY'
+};
+
 export function SidebarControl({ 
-  showRiskZones, 
-  onRiskZonesChange, 
   tileLayers,
   baseTileLayer,
   onBaseLayerChange,
-  overlayLayers = {},
-  onToggleOverlay,
-  showHistory = false,
-  onHistoryChange,
-  historyCount = 0,
-  onClearHistory,
-  showHeatmap = false,
-  onHeatmapChange
-}: ExtendedMapControlProps) {
+  overlayLayers,
+  onToggleOverlay
+}: SidebarControlProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const groupedLayers = groupLayersByCategory(tileLayers);
+
+  const getCategoryIcon = (category: string) => {
+    switch(category) {
+      case 'risk': return '⚠️';
+      case 'environment': return '🌿';
+      case 'infrastructure': return '🛣️';
+      default: return '🗺️';
+    }
+  };
 
   return (
     <>
@@ -45,24 +70,19 @@ export function SidebarControl({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          {historyCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-              {historyCount}
-            </span>
-          )}
         </div>
       </button>
 
       {/* Sidebar */}
       <div className={`absolute top-0 right-0 h-full z-1000 bg-white/95 backdrop-blur-sm shadow-lg border-l border-gray-200 transition-all duration-200 ${
-        isOpen ? 'w-64' : 'w-0'
+        isOpen ? 'w-80' : 'w-0'
       }`}>
         <div className={`h-full overflow-y-auto ${isOpen ? 'p-4' : 'p-0 opacity-0'}`}>
           
           {/* Header */}
           <div className="mb-4 pb-3 border-b border-gray-200">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">Kontrol Peta</h2>
+              <h2 className="text-sm font-semibold text-gray-900">Kontrol Peta DIY</h2>
               <button 
                 onClick={() => setIsOpen(false)}
                 className="p-1 hover:bg-gray-100 rounded"
@@ -75,200 +95,180 @@ export function SidebarControl({
           </div>
 
           {/* Base Layer Selector */}
-          {tileLayers && onBaseLayerChange && baseTileLayer && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-gray-900 mb-2">Peta Dasar</label>
+            <select 
+              value={baseTileLayer}
+              onChange={(e) => onBaseLayerChange(e.target.value)}
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-green-500 focus:border-green-500 bg-white text-gray-900"
+            >
+              {Object.entries(tileLayers)
+                .filter(([key, layer]) => layer.isBaseLayer)
+                .map(([key, layer]) => (
+                  <option key={key} value={key}>{layer.name}</option>
+                ))
+              }
+            </select>
+          </div>
+
+          {/* Category Tabs */}
+          {Object.keys(groupedLayers).length > 0 && (
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-900 mb-2">Peta Dasar</label>
-              <select 
-                value={baseTileLayer}
-                onChange={(e) => onBaseLayerChange(e.target.value)}
-                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-green-500 focus:border-green-500 bg-white text-gray-900"
-              >
-                {Object.entries(tileLayers)
-                  .filter(([key, layer]) => layer.isBaseLayer)
-                  .map(([key, layer]) => (
-                    <option key={key} value={key}>{layer.name}</option>
-                  ))
-                }
-              </select>
-              {/* Current layer info */}
-              {baseTileLayer && tileLayers[baseTileLayer as TileLayerKey] && (
-                <div className="mt-2 p-2 rounded border bg-blue-50 border-blue-200">
-                  <div className="text-xs text-blue-700">
-                    Zoom: {tileLayers[baseTileLayer as TileLayerKey]?.zoomLock?.min || 9} - {tileLayers[baseTileLayer as TileLayerKey]?.zoomLock?.max || 16}
-                  </div>
-                </div>
-              )}
+              <div className="flex space-x-1 mb-3 overflow-x-auto pb-2">
+                {Object.keys(groupedLayers).map(category => (
+                  <button
+                    key={category}
+                    onClick={() => setActiveCategory(activeCategory === category ? null : category)}
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${
+                      activeCategory === category 
+                        ? 'bg-purple-100 text-purple-700 border border-purple-200' 
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span>{getCategoryIcon(category)}</span>
+                    <span>{categoryLabels[category] || category}</span>
+                    <span className="bg-gray-300 text-gray-700 text-[10px] px-1 rounded-full">
+                      {groupedLayers[category].length}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Overlay Layer Controls */}
-          {onToggleOverlay && (
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-gray-900 mb-2">Layer Overlay</label>
-              <div className="space-y-2">
-                {Object.entries(tileLayers || {})
-                  .filter(([key, layer]) => !layer.isBaseLayer)
-                  .map(([key, layer]) => (
-                    <label key={key} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
+          {/* Layer Controls - Filtered by Category */}
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-semibold text-gray-900">Layer Overlay</label>
+              {activeCategory && (
+                <span className="text-xs text-purple-600">
+                  {categoryLabels[activeCategory] || activeCategory}
+                </span>
+              )}
+            </div>
+            
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {Object.entries(tileLayers)
+                .filter(([key, layer]) => {
+                  if (!activeCategory) return !layer.isBaseLayer;
+                  return !layer.isBaseLayer && layer.category === activeCategory;
+                })
+                .map(([key, layer]) => (
+                  <div key={key} className="bg-gray-50/50 p-2 rounded border border-gray-200">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div className="flex items-center space-x-2 flex-1">
                         <input
                           type="checkbox"
                           checked={overlayLayers[key] || false}
                           onChange={() => onToggleOverlay(key)}
                           className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
                         />
-                        <div>
-                          <span className="text-xs text-gray-700">{layer.name}</span>
-                          {key === 'custom_qgis' && layer.defaultZoom && (
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-gray-900 truncate">
+                            {layer.name}
+                          </div>
+                          {layer.defaultZoom && (
                             <div className="text-[10px] text-purple-600">
-                              Auto zoom: {layer.defaultZoom}x
+                              Zoom: {layer.zoomLock?.min || 10}-{layer.zoomLock?.max || 14} (auto {layer.defaultZoom}x)
                             </div>
                           )}
                         </div>
                       </div>
                       {layer.opacity && (
-                        <span className="text-[10px] text-gray-500">
-                          Opacity: {layer.opacity * 100}%
+                        <span className="text-[10px] text-gray-500 bg-white px-1.5 py-0.5 rounded">
+                          {layer.opacity * 100}%
                         </span>
                       )}
                     </label>
-                  ))
-                }
-              </div>
-              {overlayLayers.custom_qgis && (
-                <div className="mt-2 p-2 bg-purple-50 rounded border border-purple-200">
-                  <div className="text-xs text-purple-700">
-                    🔒 Zoom terkunci 10-14<br/>
-                    🎯 Auto zoom ke 10x
                   </div>
+                ))
+              }
+            </div>
+          </div>
+
+          {/* Active Layers Summary */}
+          <div className="mb-4">
+            <h3 className="text-xs font-semibold text-gray-900 mb-2">Layer Aktif</h3>
+            <div className="space-y-1">
+              {tileLayers[baseTileLayer] && (
+                <div className="flex items-center space-x-2 bg-blue-50 p-2 rounded border border-blue-200">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span className="text-xs text-blue-700">
+                    {tileLayers[baseTileLayer].name}
+                  </span>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Layer Toggles */}
-          <div className="mb-4">
-            <h3 className="text-xs font-semibold text-gray-900 mb-2">Layer Tampilan</h3>
-            <div className="space-y-2">
-              {/* Risk Zones Toggle */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-900">Zona Risiko</span>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showRiskZones}
-                    onChange={(e) => onRiskZonesChange(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-green-600"></div>
-                </label>
-              </div>
-
-              {/* History Points Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs font-medium text-gray-900">Titik Analisis</span>
-                  {historyCount > 0 && (
-                    <span className="bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full">
-                      {historyCount}
-                    </span>
-                  )}
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showHistory}
-                    onChange={(e) => onHistoryChange?.(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-
-              {/* Heatmap Toggle */}
-              {onHeatmapChange && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-900">Heatmap Risiko</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showHeatmap}
-                      onChange={(e) => onHeatmapChange(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-8 h-4 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-red-600"></div>
-                  </label>
+              
+              {Object.entries(overlayLayers)
+                .filter(([_, isActive]) => isActive)
+                .map(([key, _]) => (
+                  tileLayers[key] && (
+                    <div key={key} className="flex items-center space-x-2 bg-purple-50 p-2 rounded border border-purple-200">
+                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                      <span className="text-xs text-purple-700">
+                        {tileLayers[key].name}
+                      </span>
+                      <span className="text-[10px] text-purple-600 ml-auto">
+                        {tileLayers[key].opacity ? `${tileLayers[key].opacity! * 100}%` : '80%'}
+                      </span>
+                    </div>
+                  )
+                ))
+              }
+              
+              {Object.keys(overlayLayers).filter(key => overlayLayers[key]).length === 0 && (
+                <div className="text-xs text-gray-500 italic p-2 bg-gray-50 rounded">
+                  Tidak ada overlay yang aktif
                 </div>
               )}
             </div>
           </div>
-
-          {/* History Management */}
-          {historyCount > 0 && (
-            <div className="mb-4 p-3 bg-gray-50 rounded border border-gray-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-gray-900">Riwayat Analisis</span>
-                <span className="text-xs text-gray-600">{historyCount} titik</span>
-              </div>
-              <button
-                onClick={onClearHistory}
-                className="w-full text-xs bg-red-500 hover:bg-red-600 text-white py-1.5 px-3 rounded transition-colors flex items-center justify-center space-x-1"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                <span>Hapus Semua</span>
-              </button>
-            </div>
-          )}
 
           {/* Legend */}
           <div className="mb-4">
-            <h3 className="text-xs font-semibold text-gray-900 mb-2">Legenda Risiko</h3>
+            <h3 className="text-xs font-semibold text-gray-900 mb-2">Legenda</h3>
             <div className="space-y-1.5">
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full border border-white shadow-sm"></div>
-                <span className="text-xs font-medium text-gray-900">Tinggi</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full border border-white shadow-sm"></div>
-                <span className="text-xs font-medium text-gray-900">Sedang</span>
-              </div>
-              <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 bg-green-500 rounded-full border border-white shadow-sm"></div>
-                <span className="text-xs font-medium text-gray-900">Rendah</span>
+                <span className="text-xs font-medium text-gray-900">Wilayah DIY</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gray-400 rounded-full border border-white shadow-sm"></div>
+                <span className="text-xs font-medium text-gray-900">Luar DIY</span>
               </div>
             </div>
           </div>
 
-          {/* Quick Tips */}
+          {/* Map Information */}
           <div className="bg-blue-50/80 p-3 rounded border border-blue-200/50">
-            <h4 className="text-xs font-semibold text-blue-800 mb-1.5">Tips Cepat</h4>
+            <h4 className="text-xs font-semibold text-blue-800 mb-1.5">Informasi Peta</h4>
             <ul className="text-[11px] text-blue-700 space-y-0.5">
-              <li>• Klik area untuk analisis risiko</li>
-              <li>• Aktifkan Titik Analisis untuk melihat riwayat</li>
-              <li>• Pilih Peta Dasar di dropdown atas</li>
-              <li>• Aktifkan Peta Khusus DIY sebagai overlay</li>
-              <li>• Peta Khusus: Auto zoom ke 10x, Zoom 10-14</li>
-              <li>• Merah: Risiko Tinggi</li>
-              <li>• Kuning: Risiko Sedang</li>
-              <li>• Hijau: Risiko Rendah</li>
+              <li>• Zoom range: 9-16 (base), 10-14 (overlay)</li>
+              <li>• Sentral: DIY Yogyakarta</li>
+              <li>• Overlay auto zoom ke 12x</li>
+              <li>• 7 peta khusus QGIS tersedia</li>
+              <li>• Update data berkala</li>
             </ul>
           </div>
 
-          {/* Overlay Status */}
-          {overlayLayers.custom_qgis && (
-            <div className="bg-purple-50/80 p-3 rounded border border-purple-200/50 mt-3">
-              <h4 className="text-xs font-semibold text-purple-800 mb-1.5">Status Overlay Aktif</h4>
-              <ul className="text-[11px] text-purple-700 space-y-0.5">
-                <li>• ✅ Peta Khusus DIY aktif</li>
-                <li>• 🔒 Zoom terkunci 10-14</li>
-                <li>• 🎯 Zoom saat ini: 10x</li>
-                <li>• 📍 Batas DIY tersembunyi</li>
-                <li>• 💡 Peta khusus QGIS detail</li>
-              </ul>
+          {/* Categories Info */}
+          <div className="mt-4 p-3 bg-gray-50/80 rounded border border-gray-200/50">
+            <h4 className="text-xs font-semibold text-gray-800 mb-1.5">Kategori Peta</h4>
+            <div className="text-[11px] text-gray-700 space-y-1">
+              <div className="flex items-center space-x-1">
+                <span>⚠️</span>
+                <span><strong>Peta Risiko:</strong> Kerawanan longsor</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span>🌿</span>
+                <span><strong>Peta Lingkungan:</strong> Hujan, Lahan, Slope, Sungai, Tanah</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span>🛣️</span>
+                <span><strong>Peta Infrastruktur:</strong> Jaringan jalan</span>
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

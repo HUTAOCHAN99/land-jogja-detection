@@ -1,81 +1,38 @@
-// components/MapComponent.tsx - FIXED VERSION
+// components/MapComponent.tsx - FIXED VERSION (WITHOUT LAYERS CONTROL)
 'use client'
 
 import 'leaflet/dist/leaflet.css'
-import { useMapConfig } from '@/hooks/useMap'
 import { useDIYGeoJSON } from '@/hooks/useDIYGeoJSON'
 import { useState, useEffect, useRef } from 'react'
 import { DIYBoundaryFallback } from './map/DIYBoundaryFallback'
-import { InfoPanel } from './map/InfoPanel'
-import { LoadingIndicator } from './map/LoadingIndicator'
-import { MapClickHandler } from './map/MapClickHandler'
 import { PreciseDIYBoundary } from './map/PreciseDIYBoundary'
-import { RiskMarker } from './map/RiskMarker'
 import { SidebarControl } from './map/SidebarControl'
-import { HistoryMarkers } from './map/HistoryMarkers'
-import { DataSourceInfo } from './map/DataSourceInfo'
-import { MapContainer, TileLayer, useMapEvents, LayersControl } from 'react-leaflet'
-import type { MapContainerProps } from 'react-leaflet'
-import { AnalyzedPoint, TileLayerKey } from '@/types'
-import { Toast } from './map/Toast'
 import { TileLayerInfo } from './map/components/map/TileLayerInfo'
+import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet'
+import type { MapContainerProps } from 'react-leaflet'
+import { tileLayers, TileLayerKey } from '@/types'
 import L from 'leaflet'
 
-const { BaseLayer, Overlay } = LayersControl
-
 export default function MapComponent() {
-  const {
-    clickedPosition,
-    riskData,
-    loading,
-    showRiskZones,
-    setShowRiskZones,
-    handleMapClick,
-    clearRiskData,
-    mapHistory,
-    toggleShowHistory,
-    clearHistory,
-    toast,
-    setToast,
-    baseTileLayer,
-    overlayLayers,
-    tileLayers,
-    handleBaseLayerChange,
-    toggleOverlayLayer,
-    map, // INI DITAMBAHKAN
-    setMap
-  } = useMapConfig()
-
   const { diyFeature, loading: geoJSONLoading, sourceUsed } = useDIYGeoJSON()
   
-  const [showHeatmap, setShowHeatmap] = useState<boolean>(false)
+  const [map, setMap] = useState<L.Map | null>(null)
+  const [baseTileLayer, setBaseTileLayer] = useState<TileLayerKey>('satellite')
+  const [overlayLayers, setOverlayLayers] = useState<{
+    [key: string]: boolean;
+  }>({})
+  
+  const [activeOverlayInfo, setActiveOverlayInfo] = useState<{key: string, name: string} | null>(null)
   const mapInitializedRef = useRef(false)
 
-  const handleRiskMarkerClose = () => {
-    clearRiskData()
-  }
-
-  const handleHistoryMarkerClick = (point: AnalyzedPoint) => {
-    console.log('History marker clicked:', point)
-  }
-
-  // Handler untuk map click
-  const handleMapClickWithError = async (lat: number, lng: number) => {
-    try {
-      await handleMapClick(lat, lng)
-    } catch (error) {
-      console.error('Map click error:', error)
-    }
-  }
-
-  // Handler ketika map siap
+  // Handler untuk map ready
   const handleMapReady = (mapInstance: L.Map) => {
     if (!mapInitializedRef.current) {
       console.log('Map is ready')
       setMap(mapInstance)
       mapInitializedRef.current = true
       
-      // Set initial zoom dan bounds berdasarkan base layer
+      // Set initial zoom dan bounds
       const currentBaseLayer = tileLayers[baseTileLayer]
       
       if (currentBaseLayer?.zoomLock) {
@@ -88,17 +45,111 @@ export default function MapComponent() {
     }
   }
 
-  // Effect untuk reset zoom ketika overlay dimatikan
-  useEffect(() => {
-    if (map && !overlayLayers.custom_qgis && baseTileLayer) {
-      // Reset zoom lock ke base layer saat overlay dimatikan
-      const currentBaseLayer = tileLayers[baseTileLayer]
-      if (currentBaseLayer?.zoomLock) {
-        map.setMinZoom(currentBaseLayer.zoomLock.min)
-        map.setMaxZoom(currentBaseLayer.zoomLock.max)
+  // Fungsi untuk mengubah base layer
+  const handleBaseLayerChange = (layer: string) => {
+    const layerKey = layer as TileLayerKey
+    
+    if (tileLayers[layerKey] && tileLayers[layerKey].isBaseLayer) {
+      setBaseTileLayer(layerKey)
+      
+      const newLayer = tileLayers[layerKey]
+      
+      if (map) {
+        if (Object.keys(overlayLayers).some(key => overlayLayers[key])) {
+          // Jika ada overlay aktif, gunakan zoom lock dari overlay pertama
+          const firstActiveOverlay = Object.keys(overlayLayers).find(key => overlayLayers[key])
+          if (firstActiveOverlay && tileLayers[firstActiveOverlay]) {
+            const overlayLayer = tileLayers[firstActiveOverlay]
+            map.setMinZoom(overlayLayer.zoomLock?.min || 10)
+            map.setMaxZoom(overlayLayer.zoomLock?.max || 14)
+            map.setZoom(overlayLayer.defaultZoom || 12)
+          }
+        } else {
+          // Jika tidak ada overlay aktif, gunakan zoom lock dari base layer
+          if (newLayer.zoomLock) {
+            map.setMinZoom(newLayer.zoomLock.min)
+            map.setMaxZoom(newLayer.zoomLock.max)
+            
+            const currentZoom = map.getZoom()
+            if (currentZoom < newLayer.zoomLock.min) {
+              map.setZoom(newLayer.zoomLock.min)
+            } else if (currentZoom > newLayer.zoomLock.max) {
+              map.setZoom(newLayer.zoomLock.max)
+            }
+          }
+          
+          if (newLayer.defaultZoom) {
+            map.setZoom(newLayer.defaultZoom)
+          }
+        }
       }
     }
-  }, [overlayLayers.custom_qgis, baseTileLayer, map])
+  }
+
+  // Fungsi untuk toggle overlay layer
+  const toggleOverlayLayer = (layerKey: string) => {
+    const key = layerKey as TileLayerKey
+    const layer = tileLayers[key]
+    
+    if (layer && !layer.isBaseLayer) {
+      const willBeActive = !overlayLayers[key]
+      
+      // Update state
+      setOverlayLayers(prev => ({
+        ...prev,
+        [key]: willBeActive
+      }))
+      
+      if (willBeActive) {
+        // Set active overlay info untuk TileLayerInfo
+        setActiveOverlayInfo({ key, name: layer.name })
+        
+        if (map) {
+          // Otomatis set zoom untuk overlay
+          setTimeout(() => {
+            if (map && layer.defaultZoom) {
+              map.setZoom(layer.defaultZoom)
+              
+              // Set zoom lock untuk overlay
+              if (layer.zoomLock) {
+                map.setMinZoom(layer.zoomLock.min)
+                map.setMaxZoom(layer.zoomLock.max)
+              }
+            }
+          }, 100)
+        }
+      } else {
+        // Jika overlay dimatikan, reset active overlay info
+        if (activeOverlayInfo?.key === key) {
+          setActiveOverlayInfo(null)
+        }
+        
+        // Jika tidak ada overlay aktif lagi, reset zoom ke base layer
+        if (map && !Object.keys(overlayLayers).some(k => k !== key && overlayLayers[k])) {
+          const currentBaseLayer = tileLayers[baseTileLayer]
+          if (currentBaseLayer?.zoomLock) {
+            map.setMinZoom(currentBaseLayer.zoomLock.min)
+            map.setMaxZoom(currentBaseLayer.zoomLock.max)
+          }
+        }
+      }
+    }
+  }
+
+  // Effect untuk reset zoom ketika semua overlay dimatikan
+  useEffect(() => {
+    if (map && baseTileLayer) {
+      const hasActiveOverlay = Object.keys(overlayLayers).some(key => overlayLayers[key])
+      
+      if (!hasActiveOverlay) {
+        const currentBaseLayer = tileLayers[baseTileLayer]
+        if (currentBaseLayer?.zoomLock) {
+          map.setMinZoom(currentBaseLayer.zoomLock.min)
+          map.setMaxZoom(currentBaseLayer.zoomLock.max)
+        }
+      }
+    }
+  }, [overlayLayers, baseTileLayer, map])
 
   const mapContainerProps: MapContainerProps = {
     center: [-7.7972, 110.3688] as [number, number],
@@ -108,98 +159,67 @@ export default function MapComponent() {
     className: "z-0"
   }
 
-  // Get current base layer config
-  const currentBaseLayer = tileLayers[baseTileLayer]
-  
   // Tentukan apakah boundary harus ditampilkan
-  // Boundary tidak ditampilkan jika overlay peta khusus aktif
-  const showBoundary = !overlayLayers.custom_qgis
+  // Boundary tidak ditampilkan jika ada overlay aktif
+  const showBoundary = !Object.keys(overlayLayers).some(key => overlayLayers[key])
+
+  // Dapatkan URL untuk tile layer yang aktif
+  const getBaseTileLayerUrl = () => {
+    const layer = tileLayers[baseTileLayer]
+    return layer?.url || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+  }
+
+  // Dapatkan attribution untuk tile layer yang aktif
+  const getBaseTileLayerAttribution = () => {
+    const layer = tileLayers[baseTileLayer]
+    return layer?.attribution || '© OpenStreetMap contributors'
+  }
 
   return (
     <div className="relative h-full">
-      {/* Toast Notification */}
-      {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)}
-          duration={3000}
-        />
-      )}
-
       <SidebarControl
-        showRiskZones={showRiskZones}
-        onRiskZonesChange={setShowRiskZones}
         tileLayers={tileLayers}
         baseTileLayer={baseTileLayer}
         onBaseLayerChange={handleBaseLayerChange}
         overlayLayers={overlayLayers}
         onToggleOverlay={toggleOverlayLayer}
-        showHistory={mapHistory.showHistory}
-        onHistoryChange={toggleShowHistory}
-        historyCount={mapHistory.analyzedPoints.length}
-        onClearHistory={clearHistory}
-        showHeatmap={showHeatmap}
-        onHeatmapChange={setShowHeatmap}
       />
       
       {/* Tile Layer Info Component */}
-      {overlayLayers.custom_qgis && (
+      {activeOverlayInfo && (
         <TileLayerInfo 
-          layer={tileLayers.custom_qgis}
+          layer={tileLayers[activeOverlayInfo.key]}
           isActive={true}
         />
       )}
 
       <MapContainer {...mapContainerProps}>
-        {/* Layers Control untuk base layer dan overlay */}
-        <LayersControl position="topright">
-          {/* Base Layers */}
-          <BaseLayer checked={baseTileLayer === 'satellite'} name="Satelit">
+        {/* Tile layer untuk base map */}
+        <TileLayer
+          attribution={getBaseTileLayerAttribution()}
+          url={getBaseTileLayerUrl()}
+        />
+        
+        {/* Overlay layers */}
+        {Object.entries(tileLayers)
+          .filter(([key, layer]) => !layer.isBaseLayer && overlayLayers[key])
+          .map(([key, layer]) => (
             <TileLayer
-              attribution="© Esri"
-              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              key={key}
+              attribution={layer.attribution}
+              url={layer.url}
+              opacity={layer.opacity || 0.8}
+              minZoom={layer.minZoom || 10}
+              maxZoom={layer.maxZoom || 14}
+              tms={layer.tms || false}
             />
-          </BaseLayer>
-          
-          <BaseLayer checked={baseTileLayer === 'standard'} name="Standar">
-            <TileLayer
-              attribution="© OpenStreetMap contributors"
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-          </BaseLayer>
-          
-          <BaseLayer checked={baseTileLayer === 'terrain'} name="Topografi">
-            <TileLayer
-              attribution="© OpenTopoMap"
-              url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-            />
-          </BaseLayer>
-          
-          {/* Overlay Layers */}
-          <Overlay checked={overlayLayers.custom_qgis} name="Peta Khusus DIY">
-            <TileLayer
-              attribution="Created by QGIS"
-              url="/tiles/{z}/{x}/{y}.png"
-              opacity={tileLayers.custom_qgis.opacity || 0.7}
-              minZoom={tileLayers.custom_qgis.minZoom || 10}
-              maxZoom={tileLayers.custom_qgis.maxZoom || 14}
-              tms={tileLayers.custom_qgis.tms || false}
-            />
-          </Overlay>
-        </LayersControl>
+          ))
+        }
         
         {/* Komponen untuk mendapatkan map instance */}
         <MapInstanceHandler onMapReady={handleMapReady} />
-      
-        {/* History Markers */}
-        <HistoryMarkers 
-          points={mapHistory.analyzedPoints}
-          visible={mapHistory.showHistory}
-          onMarkerClick={handleHistoryMarkerClick}
-        />
         
-        {/* Batas DIY hanya ditampilkan jika overlay peta khusus tidak aktif */}
+        {/* Batas DIY hanya ditampilkan jika tidak ada overlay aktif */}
         {showBoundary && !geoJSONLoading && diyFeature ? (
           <PreciseDIYBoundary 
             diyFeature={diyFeature} 
@@ -208,59 +228,53 @@ export default function MapComponent() {
         ) : showBoundary ? (
           <DIYBoundaryFallback />
         ) : null}
-        
-        <MapClickHandler onMapClick={handleMapClickWithError} />
-        
-        {/* Current Marker */}
-        {clickedPosition && riskData && !loading && (
-          <RiskMarker 
-            position={clickedPosition} 
-            riskData={riskData} 
-            onClose={handleRiskMarkerClose}
-          />
-        )}
       </MapContainer>
 
-      {/* Status Indicators */}
-      {geoJSONLoading && showBoundary && (
-        <div className="absolute top-4 left-4 bg-white/90 p-2 rounded-lg shadow-md border border-gray-200 z-1000">
-          <div className="flex items-center space-x-2">
-            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600"></div>
-            <span className="text-xs text-gray-600">Memuat batas wilayah...</span>
-          </div>
-        </div>
-      )}
-
       {/* Layer info indicator */}
-      <div className="absolute bottom-20 left-4 bg-white/90 backdrop-blur-sm p-2 rounded-lg shadow-md border border-gray-200 z-1000">
-        <div className="flex items-center space-x-2">
-          <div className={`w-3 h-3 rounded-full ${
-            baseTileLayer === 'satellite' ? 'bg-green-500' :
-            baseTileLayer === 'terrain' ? 'bg-orange-500' : 'bg-blue-500'
-          }`}></div>
-          <div>
-            <span className="text-xs font-medium text-gray-700">
-              {tileLayers[baseTileLayer]?.name || 'Peta Dasar'}
-            </span>
-            {overlayLayers.custom_qgis && (
-              <div className="flex items-center space-x-1">
-                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                <span className="text-[10px] text-purple-600">+ Peta Khusus DIY (Zoom: 10x)</span>
+      <div className="absolute bottom-20 left-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-md border border-gray-200 z-1000 min-w-[200px]">
+        <div className="space-y-2">
+          {/* Base Layer Info */}
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${
+              baseTileLayer === 'satellite' ? 'bg-green-500' :
+              baseTileLayer === 'terrain' ? 'bg-orange-500' : 'bg-blue-500'
+            }`}></div>
+            <div>
+              <span className="text-xs font-medium text-gray-700">
+                {tileLayers[baseTileLayer]?.name || 'Peta Dasar'}
+              </span>
+            </div>
+          </div>
+          
+          {/* Active Overlays */}
+          {Object.keys(overlayLayers)
+            .filter(key => overlayLayers[key])
+            .map(key => (
+              <div key={key} className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+                <div>
+                  <span className="text-xs font-medium text-purple-700">
+                    {tileLayers[key]?.name}
+                  </span>
+                  <div className="text-[10px] text-purple-600">
+                    Zoom: {tileLayers[key]?.defaultZoom}x | Opacity: {tileLayers[key]?.opacity ? tileLayers[key].opacity * 100 : 80}%
+                  </div>
+                </div>
               </div>
-            )}
+            ))
+          }
+          
+          {/* Boundary Status */}
+          <div className="pt-2 border-t border-gray-200">
+            <div className="flex items-center space-x-1">
+              <div className={`w-2 h-2 rounded-full ${showBoundary ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+              <span className="text-[10px] text-gray-600">
+                {showBoundary ? 'Batas DIY aktif' : 'Batas DIY tersembunyi'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
-
-      <LoadingIndicator loading={loading} />
-      
-      {/* InfoPanel - hanya tampil jika boundary aktif */}
-      {showBoundary && <InfoPanel />}
-      
-      {/* Data Source Info */}
-      {riskData && (
-        <DataSourceInfo data={{ metadata: riskData.metadata }} />
-      )}
     </div>
   )
 }
